@@ -18,37 +18,15 @@ google_api_token = os.getenv('GOOGLE_API_TOKEN')  # La clave API para Google Gen
 genai.configure(api_key=google_api_token)
 
 telegram_api_token = os.getenv('TELEGRAM_BOT_TOKEN')
-mqtt_server = "95.217.41.121"
+mqtt_server = "mqtt.gaspi.es"
 mqtt_port = 1883
-mqtt_topic_publish = "/test/mssg"
 client = mqtt.Client()
-
-
-def connect_to_mqtt():
-    try:
-        client.connect(mqtt_server, mqtt_port, 60)
-        print("Conectado al broker MQTT")
-    except Exception as e:
-        print(f"Error al conectar al broker MQTT: {e}")
-
 
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 bot = TeleBot(token=telegram_api_token)
 
-def publish_mqtt_message(message):
-    try:
-        connect_to_mqtt()
-        result = client.publish(mqtt_topic_publish, message)
-        if result.rc == mqtt.MQTT_ERR_SUCCESS:
-            print(f"Mensaje publicado correctamente en {mqtt_topic_publish}")
-            return True
-        else:
-            print("Error al publicar el mensaje en MQTT")
-            return False
-    except Exception as e:
-        print(f"Error al intentar publicar en MQTT: {e}")
-        return False
+
 
 
 @bot.message_handler(commands=['start', 'help'])
@@ -68,19 +46,34 @@ def enviar_bienvenida(mensaje):
     # Enviar la respuesta al usuario
     bot.reply_to(mensaje, generated_text)
 
-
+# Callback para recibir mensajes de MQTT
+def on_message(client, userdata, message):
+    # Asigna el payload del mensaje recibido
+    mqtt_message = message.payload.decode("utf-8")
+    # Envía el mensaje al usuario que solicitó el comando
+    bot.reply_to(userdata['message'], mqtt_message)
+    client.loop_stop()
 @bot.message_handler(commands=['mqtt'])
-def enviar_mensaje_mqtt(mensaje):
-    chat_id = mensaje.chat.id
-    mensaje_a_enviar = mensaje.text[len('/mqtt '):].strip()
 
-    bot.reply_to(mensaje, "Enviando mensaje a MQTT...")
+def mqtt_obtener_temperatura(mensaje):
+    # Conectarse al servidor mqtt
+    client.user_data_set({'message': mensaje})  # Guarda el mensaje original
+    client.on_message = on_message  # Configura el callback para mensajes
+    client.connect(mqtt_server, mqtt_port)
 
-    # Enviar el mensaje a MQTT
-    if publish_mqtt_message(mensaje_a_enviar):
-        bot.send_message(chat_id, "Mensaje enviado a MQTT exitosamente.")
-    else:
-        bot.send_message(chat_id, "Error al enviar el mensaje a MQTT.")
+    # Suscribirse al tópico
+    client.subscribe("/ESP32/temperatura")
+    # Indicar al usuario que se está esperando por la temperatura
+    bot.reply_to(mensaje, "Esperando por la temperatura...")
+    client.loop_start()  # Inicia el bucle para escuchar mensajes
+
+
+
+
+
+
+
+
 
 
 @bot.message_handler(commands=['tiempo'])
