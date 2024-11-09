@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from telebot import TeleBot
 import os
 from dotenv import load_dotenv
@@ -52,13 +54,19 @@ def publish_mqtt_message(message):
 
 
 @bot.message_handler(commands=['start', 'help'])
-def enviar_bienvenida(mensaje):
-    # Ajustar el prompt para que el modelo responda como si fuera el bot
-    prompt = f"Responde como si fueras un bot de telegram llamado Botardo, estás creado por UO278137,\
-         tu funcion es dar detalles sobre el tiempo por comandos, si estás recibiendo este mensaje es porque el usuario está \
-         escribiendo algo para lo que el bot no está programado. Los únicos comandos a los que respondes son\
-          /tiempo código postal, /tiempo lugar. Da una bienvenida al usuario, vas a responder al comando start\n"
 
+def enviar_bienvenida(mensaje):
+    # Obtener la hora y minutos actuales
+    hora_actual = datetime.now().strftime("%H:%M")
+    # Obten la fecha actual en español
+
+    fecha_actual = datetime.now().strftime("%A, %d de %B de %Y")
+
+    # Ajustar el prompt para que el modelo responda como si fuera el bot
+    prompt = f"Responde como si fueras un bot de telegram llamado Brasebot, el bot de roberto brasero de antena tres noticias, estás creado por UO278137,\
+         tu funcion es dar detalles sobre el tiempo por comandos. Da la bienvenida al usuario indicando el día {fecha_actual} y la hora tras dar los buenos dias , tardes o noches dependiendo de la hora que sea (son las {hora_actual})  Los únicos comandos a los que respondes son\
+          /tiempo código postal, /tiempo lugar. \n"
+    prompt2 = hora_actual
     # Generar respuesta usando el modelo
     response = model.generate_content(prompt)
 
@@ -107,8 +115,26 @@ def obtener_tiempo(mensaje):
         res.raise_for_status()  # Lanza una excepción si la respuesta tiene un error
         data = res.json()
 
-        # Enviar el nombre de la ciudad y la temperatura al usuario
-        bot.reply_to(mensaje, f"El clima en {data['name']} es de {data['main']['temp']}°C.")
+        #obtener fecha y hora actual usando datetime
+        fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        lugar = data['name']
+        temperatura = data['main']['temp']
+        humedad = data['main']['humidity']
+        viento = data['wind']['speed']
+        #obtener puesta de sol usando datetime
+        puesta_sol = datetime.fromtimestamp(data['sys']['sunset']).strftime("%H:%M:%S")
+
+        # Crear el mensaje de respuesta
+        mensaje_respuesta = textwrap.dedent(f"""
+            Fecha/Hora: {fecha_hora}
+            Lugar: {lugar}
+            Temperatura: {temperatura} °C
+            Humedad: {humedad} %
+            Viento: {viento} Km/h
+            Puesta de sol: {puesta_sol}
+        """)
+
+        bot.reply_to(mensaje, mensaje_respuesta)
     except requests.exceptions.HTTPError as http_err:
         bot.reply_to(mensaje, "No se pudo obtener el clima. Verifica el código postal o el nombre del lugar.")
         print(f"HTTP error: {http_err}")
@@ -120,7 +146,7 @@ def obtener_tiempo(mensaje):
 @bot.message_handler(content_types=['text'])
 def respuesta_por_defecto(mensaje):
     # Ajustar el prompt para que el modelo responda como si fuera el bot
-    prompt = f"Responde como si fueras un bot de telegram,\
+    prompt = f"Responde como si fueras un bot de telegram, no introduzcas ningún formato al texto como negrita o cursiva\
      tu funcion es dar detalles sobre el tiempo por comandos, si estás recibiendo este mensaje es porque el usuario está \
      escribiendo algo para lo que el bot no está programado, eres el último message handler. Los únicos comandos a los que respondes son\
       /tiempo (código postal aquí), /tiempo (un lugar aquí). Si estoy pasandote esto es porque el usuario no ha introducido un comando válido, corrígele\n"
