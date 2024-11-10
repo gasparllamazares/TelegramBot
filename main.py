@@ -1,139 +1,93 @@
 from datetime import datetime
-
 from telebot import TeleBot
 import os
 from dotenv import load_dotenv
-import pathlib
 import textwrap
-import requests, json
+import requests
 import google.generativeai as genai
-from IPython.display import display
-from IPython.display import Markdown
-import paho.mqtt.client as mqtt
+from mqtt_client import MQTTClient  # Import MQTTClient from the new file
+import json
 
 
+# Load environment variables
 load_dotenv()
 
 open_weather_token = os.getenv('OPEN_WEATHER_TOKEN')
 telegram_api_token = os.getenv('TELEGRAM_BOT_TOKEN')
-google_api_token = os.getenv('GOOGLE_API_TOKEN')  # La clave API para Google Generative AI
+google_api_token = os.getenv('GOOGLE_API_TOKEN')
 genai.configure(api_key=google_api_token)
 
-telegram_api_token = os.getenv('TELEGRAM_BOT_TOKEN')
-mqtt_server = "95.217.41.121"
-mqtt_port = 1883
-mqtt_topic_publish = "/test/mssg"
-client = mqtt.Client()
-
-
-def connect_to_mqtt():
-    try:
-        client.connect(mqtt_server, mqtt_port, 60)
-        print("Conectado al broker MQTT")
-    except Exception as e:
-        print(f"Error al conectar al broker MQTT: {e}")
-
-
+# Set up the Telegram bot
+bot = TeleBot(token=telegram_api_token)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-bot = TeleBot(token=telegram_api_token)
-
-def publish_mqtt_message(message):
-    try:
-        connect_to_mqtt()
-        result = client.publish(mqtt_topic_publish, message)
-        if result.rc == mqtt.MQTT_ERR_SUCCESS:
-            print(f"Mensaje publicado correctamente en {mqtt_topic_publish}")
-            return True
-        else:
-            print("Error al publicar el mensaje en MQTT")
-            return False
-    except Exception as e:
-        print(f"Error al intentar publicar en MQTT: {e}")
-        return False
+# Initialize the reusable MQTT client
+mqtt_client = MQTTClient()
 
 
+# Define bot handlers
 @bot.message_handler(commands=['start', 'help'])
-
 def enviar_bienvenida(mensaje):
-    # Obtener la hora y minutos actuales
     hora_actual = datetime.now().strftime("%H:%M")
-    # Obten la fecha actual en español
-
     fecha_actual = datetime.now().strftime("%A, %d de %B de %Y")
-
-    # Ajustar el prompt para que el modelo responda como si fuera el bot
-    prompt = f"Responde como si fueras un bot de telegram llamado Brasebot, el bot de roberto brasero de antena tres noticias, estás creado por UO278137,\
-         tu funcion es dar detalles sobre el tiempo por comandos. Da la bienvenida al usuario indicando el día {fecha_actual} y la hora tras dar los buenos dias , tardes o noches dependiendo de la hora que sea (son las {hora_actual})  Los únicos comandos a los que respondes son\
-          /tiempo código postal, /tiempo lugar. \n"
-    prompt2 = hora_actual
-    # Generar respuesta usando el modelo
+    prompt = (
+        f"Responde como si fueras un bot de telegram llamado Brasebot, el bot de roberto brasero de antena tres noticias, estás creado por UO278137. "
+        f"Da la bienvenida al usuario indicando el día {fecha_actual} y la hora tras dar los buenos días, tardes o noches dependiendo de la hora (son las {hora_actual}). "
+        f"Los únicos comandos a los que respondes son /tiempo código postal, /tiempo lugar."
+    )
     response = model.generate_content(prompt)
-
-    # Extraer solo el texto generado
     generated_text = response._result.candidates[0].content.parts[0].text
-
-    # Enviar la respuesta al usuario
     bot.reply_to(mensaje, generated_text)
 
 
 @bot.message_handler(commands=['mqtt'])
-def enviar_mensaje_mqtt(mensaje):
-    chat_id = mensaje.chat.id
-    mensaje_a_enviar = mensaje.text[len('/mqtt '):].strip()
+def obtener_mqtt(mensaje):
+    # Intentar analizar el mensaje JSON
+    last_message = mqtt_client.get_last_message()
+    try:
+        # Analizar el mensaje JSON
+        data = json.loads(last_message)
 
-    bot.reply_to(mensaje, "Enviando mensaje a MQTT...")
-
-    # Enviar el mensaje a MQTT
-    if publish_mqtt_message(mensaje_a_enviar):
-        bot.send_message(chat_id, "Mensaje enviado a MQTT exitosamente.")
-    else:
-        bot.send_message(chat_id, "Error al enviar el mensaje a MQTT.")
+        # Extraer la información y formatearla
+        formatted_message = textwrap.dedent(f"""
+                📊 **Últimos datos obtenidos del Sensor** 📊
+                🌡️ Temperatura: {data.get('temperature', 'N/A')} °C
+                💨 Presión: {data.get('pressure', 'N/A')} hPa
+                🕒 Hora UTC: {data.get('timestamp', 'N/A')}
+            """)
+    except json.JSONDecodeError:
+        # Si falla el análisis, mostrar un mensaje de error
+        formatted_message = "⚠️ Error: El mensaje no está en un formato JSON válido."
+    bot.reply_to(mensaje, formatted_message, parse_mode='Markdown')
 
 
 @bot.message_handler(commands=['tiempo'])
 def obtener_tiempo(mensaje):
-    # Extraer el parámetro del mensaje después del comando
     param = ' '.join(mensaje.text.split()[1:])
-
-    # Verificar si se ingresó un parámetro
     if not param:
         bot.reply_to(mensaje, "Por favor, proporciona un código postal o un nombre de lugar.")
         return
-    # Intentar tratar el parámetro como un código postal
     try:
-        CP = int(param)
-        url = f"https://api.openweathermap.org/data/2.5/weather?zip={CP},es&units=metric&appid={open_weather_token}"
-    except ValueError:
-        # Si no es un código postal, tratarlo como un nombre de lugar
-        lugar = param
-        url = f"https://api.openweathermap.org/data/2.5/weather?q={lugar},es&units=metric&appid={open_weather_token}"
+        if param.isdigit():
+            url = f"https://api.openweathermap.org/data/2.5/weather?zip={param},es&units=metric&appid={open_weather_token}"
+        else:
+            url = f"https://api.openweathermap.org/data/2.5/weather?q={param},es&units=metric&appid={open_weather_token}"
 
-    # Realizar la solicitud a la API
-    try:
         res = requests.get(url)
-        res.raise_for_status()  # Lanza una excepción si la respuesta tiene un error
+        res.raise_for_status()
         data = res.json()
-
-        #obtener fecha y hora actual usando datetime
         fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        lugar = data['name']
-        temperatura = data['main']['temp']
-        humedad = data['main']['humidity']
-        viento = data['wind']['speed']
-        #obtener puesta de sol usando datetime
-        puesta_sol = datetime.fromtimestamp(data['sys']['sunset']).strftime("%H:%M:%S")
-
-        # Crear el mensaje de respuesta
+        #con emojis
         mensaje_respuesta = textwrap.dedent(f"""
-            Fecha/Hora: {fecha_hora}
-            Lugar: {lugar}
-            Temperatura: {temperatura} °C
-            Humedad: {humedad} %
-            Viento: {viento} Km/h
-            Puesta de sol: {puesta_sol}
+            📅 Fecha y hora UTC
+                {fecha_hora}
+            🌍 Lugar: {data['name']}
+            🌡️ Temperatura: {data['main']['temp']} °C
+            💧 Humedad: {data['main']['humidity']} %
+            💨 Viento: {data['wind']['speed']} Km/h
+            🌇 Puesta de sol: {datetime.fromtimestamp(data['sys']['sunset']).strftime("%H:%M:%S")}
+        
         """)
-
         bot.reply_to(mensaje, mensaje_respuesta)
     except requests.exceptions.HTTPError as http_err:
         bot.reply_to(mensaje, "No se pudo obtener el clima. Verifica el código postal o el nombre del lugar.")
@@ -145,21 +99,15 @@ def obtener_tiempo(mensaje):
 
 @bot.message_handler(content_types=['text'])
 def respuesta_por_defecto(mensaje):
-    # Ajustar el prompt para que el modelo responda como si fuera el bot
-    prompt = f"Responde como si fueras un bot de telegram, no introduzcas ningún formato al texto como negrita o cursiva\
-     tu funcion es dar detalles sobre el tiempo por comandos, si estás recibiendo este mensaje es porque el usuario está \
-     escribiendo algo para lo que el bot no está programado, eres el último message handler. Los únicos comandos a los que respondes son\
-      /tiempo (código postal aquí), /tiempo (un lugar aquí). Si estoy pasandote esto es porque el usuario no ha introducido un comando válido, corrígele\n"
-
-
-    # Generar respuesta usando el modelo
+    prompt = (
+        "Responde como si fueras un bot de telegram. "
+        "Los únicos comandos a los que respondes son /tiempo (código postal aquí), /tiempo (un lugar aquí). "
+        "Si estoy pasándote esto es porque el usuario no ha introducido un comando válido, corrígele."
+    )
     response = model.generate_content(prompt)
-
-    # Extraer solo el texto generado
     generated_text = response._result.candidates[0].content.parts[0].text
-
-    # Enviar la respuesta al usuario
     bot.reply_to(mensaje, generated_text)
 
 
+# Start polling
 bot.infinity_polling()
