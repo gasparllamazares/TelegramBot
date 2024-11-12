@@ -56,9 +56,9 @@ def obtener_mqtt(mensaje):
         # Extraer la información y formatearla
         formatted_message = textwrap.dedent(f"""
                 
-                📊 **Últimos datos obtenidos del Sensor** 📊
+                📊 **Últimos datos obtenidos del Sensor** 
                 🕒 Hora: {timestamp.strftime("%H:%M:%S")}
-                📅 Fecha: {timestamp.strftime("%A, %d de %B de %Y")}
+                📅 Fecha: {timestamp.strftime("%d/%m/%Y")}
                 🌡️ Temperatura: {data.get('temperature', 'N/A')} °C
                 🌀 Presión: {data.get('pressure', 'N/A')} hPa
                 
@@ -110,9 +110,10 @@ def obtener_tiempo(mensaje, param):
 
         # Formatear el mensaje de respuesta
         mensaje_respuesta = textwrap.dedent(f"""
-            📅 Fecha: {current_time_in_spain.strftime("%A, %d de %B de %Y")}
+            📅 Fecha: {current_time_in_spain.strftime("%d/%m/%Y")}
             🕒 Hora: {current_time_in_spain.strftime("%H:%M:%S")}
             🌍 Lugar: {data['name']}
+            
             🌡️ Temperatura: {data['main']['temp']} °C
             💧 Humedad: {data['main']['humidity']} %
             💨 Viento: {data['wind']['speed']} Km/h
@@ -131,9 +132,93 @@ def obtener_tiempo(mensaje, param):
         bot.reply_to(mensaje, "Ocurrió un error al obtener el clima.")
         print(f"Other error: {err}")
 
+@bot.message_handler(commands=['calidad_aire'])
+def handle_calidad_aire(mensaje):
+    args = mensaje.text.split(maxsplit=1)  # Divide el comando y el argumento
+    if len(args) < 2:
+        # Si no hay suficientes argumentos, establece el estado y pide más información
+        bot.send_message(mensaje.chat.id, "Por favor, proporciona un código postal o un nombre de lugar para la calidad del aire.")
+        user_state[mensaje.chat.id] = "esperando_calidad_aire"
+    else:
+        # Si hay suficientes argumentos, procesamos la calidad del aire directamente
+        param = args[1]
+        obtener_calidad_aire(mensaje, param)
 
-# Ejecuta el bot
+# Manejador para el siguiente input del usuario si falta el parámetro
+@bot.message_handler(func=lambda mensaje: user_state.get(mensaje.chat.id) == "esperando_calidad_aire")
+def obtener_segundo_argumento_calidad_aire(mensaje):
+    param = mensaje.text  # Captura el segundo argumento como ubicación
+    user_state[mensaje.chat.id] = None  # Limpiar el estado del usuario después de recibir la entrada
+    obtener_calidad_aire(mensaje, param)
 
+# Función para obtener calidad del aire de una ubicación
+def obtener_calidad_aire(mensaje, param):
+    try:
+        # Determina si `param` es un código postal (solo dígitos) o una ciudad
+        if param.isdigit():
+            # URL para obtener lat y lon usando código postal
+            geocode_url = f"http://api.openweathermap.org/geo/1.0/zip?zip={param},es&appid={open_weather_token}"
+        else:
+            # URL para obtener lat y lon usando nombre de ciudad
+            geocode_url = f"http://api.openweathermap.org/geo/1.0/direct?q={param},es&limit=1&appid={open_weather_token}"
+
+        # Realizar la solicitud para obtener las coordenadas
+        geocode_res = requests.get(geocode_url)
+        geocode_res.raise_for_status()
+        geocode_data = geocode_res.json()
+
+        # Procesar los datos de coordenadas
+        if param.isdigit():
+            # La respuesta es un solo diccionario cuando se usa el endpoint /zip
+            lat = geocode_data['lat']
+            lon = geocode_data['lon']
+        elif geocode_data:
+            # La respuesta es una lista cuando se usa el endpoint /direct
+            lat = geocode_data[0]['lat']
+            lon = geocode_data[0]['lon']
+        else:
+            bot.send_message(mensaje.chat.id, "No se pudo encontrar la ubicación especificada.")
+            return
+
+        # Obtener calidad del aire con latitud y longitud
+        air_quality_url = f"https://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid={open_weather_token}"
+        air_quality_res = requests.get(air_quality_url)
+        air_quality_res.raise_for_status()
+        air_quality_data = air_quality_res.json()
+
+        # Extraer el índice de calidad del aire
+        air_quality_index = air_quality_data['list'][0]['main']['aqi']
+
+        # Traducir el índice de calidad del aire al texto con emojis
+        calidad_aire_texto = {
+
+            1: "Buena (🟢)",
+            2: "Razonable (🟡)",
+            3: "Regular (🟠)",
+            4: "Pobre (🔴)",
+            5: "Muy pobre (🟣)"
+        }
+        calidad_aire = calidad_aire_texto.get(air_quality_index, "Desconocida")
+
+        # Obtener la hora actual en España
+        current_time_in_spain = datetime.now(spain_timezone)
+
+        # Formatear el mensaje de respuesta
+        mensaje_respuesta = textwrap.dedent(f"""
+            📅 Fecha: {current_time_in_spain.strftime("%d/%m/%Y")}
+            🕒 Hora: {current_time_in_spain.strftime("%H:%M:%S")}
+            🌍 Lugar: {param.capitalize()}
+            
+            💨 Calidad del Aire: {calidad_aire} (Índice: {air_quality_index})
+        """)
+
+        bot.reply_to(mensaje, mensaje_respuesta.strip())
+    except requests.exceptions.HTTPError as http_err:
+        bot.reply_to(mensaje, "No se pudo obtener la calidad del aire. Verifica el código postal o el nombre del lugar.")
+        print(f"HTTP error: {http_err}")
+    except Exception as err:
+        bot.reply_to(mensaje, "Ocurrió un error al obtener la calidad del aire.")
+        print(f"Other error: {err}")
 
 @bot.message_handler(content_types=['text'])
 def respuesta_por_defecto(mensaje):
