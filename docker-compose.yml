@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  telegram_bot:
+    build:
+      context: ./telegram-bot
+    container_name: telegram-bot
+    environment:
+      - OPEN_WEATHER_TOKEN=${OPEN_WEATHER_TOKEN}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GOOGLE_API_TOKEN=${GOOGLE_API_TOKEN}
+      - MQTT_CLIENT_CERT=/certs/client.crt  # Internal container path
+      - MQTT_CLIENT_KEY=/certs/client.key
+      - MQTT_CA_CERT=/certs/ca.crt
+    volumes:
+      - ${MQTT_CLIENT_CERT}:/certs/client.crt
+      - ${MQTT_CLIENT_KEY}:/certs/client.key
+      - ${MQTT_CA_CERT}:/certs/ca.crt
+    restart: unless-stopped

@@ -11,10 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code
-COPY src/ /app/src/
-
-# Copy .env.config and rename it to .env within the container
-COPY .env.config /app/.env
+COPY src /app/src/
 
 # Run the application
 CMD ["python", "/app/src/main.py"]
