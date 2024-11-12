@@ -1,5 +1,5 @@
 from datetime import datetime
-from telebot import TeleBot
+from telebot import TeleBot, types
 import pytz
 import os
 from dotenv import load_dotenv
@@ -29,19 +29,22 @@ spain_timezone = pytz.timezone("Europe/Madrid")
 
 
 # Define bot handlers
-@bot.message_handler(commands=['start', 'help'])
-def enviar_bienvenida(mensaje):
-    hora_actual = datetime.now().strftime("%H:%M")
-    fecha_actual = datetime.now().strftime("%A, %d de %B de %Y")
-    prompt = (
-        f"Responde como si fueras un bot de telegram llamado Brasebot, el bot de roberto brasero de antena tres noticias, estás creado por UO278137. "
-        f"Da la bienvenida al usuario indicando el día {fecha_actual} y la hora tras dar los buenos días, tardes o noches dependiendo de la hora (son las {hora_actual}). "
-        f"Los únicos comandos a los que respondes son /tiempo código postal, /tiempo lugar. Di una curiosidad sobre el clima. No pongas ** en el texto."
-    )
-    response = model.generate_content(prompt)
-    generated_text = response._result.candidates[0].content.parts[0].text
-    bot.reply_to(mensaje, generated_text)
+@bot.message_handler(commands=['start'])
+def mostrar_menu(mensaje):
+    # Crear el menú con botones para cada comando
+    menu = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    boton_tiempo = types.KeyboardButton('/tiempo')
+    boton_calidad_aire = types.KeyboardButton('/calidad_aire')
+    boton_promedio_temp = types.KeyboardButton('/promedio_temp')
+    boton_prediccion_general = types.KeyboardButton('/prediccion_general')
+    boton_mqtt = types.KeyboardButton('/mqtt')
+    boton_help = types.KeyboardButton('/help')
 
+    # Agregar los botones al menú
+    menu.add(boton_tiempo, boton_calidad_aire, boton_promedio_temp, boton_prediccion_general, boton_mqtt, boton_help)
+
+    # Enviar el menú como respuesta al comando /start
+    bot.send_message(mensaje.chat.id, "Selecciona una opción:", reply_markup=menu)
 
 @bot.message_handler(commands=['mqtt'])
 def obtener_mqtt(mensaje):
@@ -220,6 +223,191 @@ def obtener_calidad_aire(mensaje, param):
         bot.reply_to(mensaje, "Ocurrió un error al obtener la calidad del aire.")
         print(f"Other error: {err}")
 
+
+@bot.message_handler(commands=['promedio_temp'])
+def handle_promedio_temp(mensaje):
+    args = mensaje.text.split(maxsplit=1)  # Divide el comando y el argumento
+    if len(args) < 2:
+        # Si no hay suficientes argumentos, establece el estado y pide más información
+        bot.send_message(mensaje.chat.id, "Por favor, proporciona un código postal o un nombre de lugar para el cálculo del promedio de temperatura.")
+        user_state[mensaje.chat.id] = "esperando_promedio_temp"
+    else:
+        # Si hay suficientes argumentos, procesamos el promedio de temperatura directamente
+        param = args[1]
+        obtener_promedio_temp(mensaje, param)
+
+# Manejador para el siguiente input del usuario si falta el parámetro
+@bot.message_handler(func=lambda mensaje: user_state.get(mensaje.chat.id) == "esperando_promedio_temp")
+def obtener_segundo_argumento_promedio_temp(mensaje):
+    param = mensaje.text  # Captura el segundo argumento como ubicación
+    user_state[mensaje.chat.id] = None  # Limpiar el estado del usuario después de recibir la entrada
+    obtener_promedio_temp(mensaje, param)
+
+# Función para obtener el promedio de temperatura de una ubicación
+def obtener_promedio_temp(mensaje, param):
+    try:
+        # Determina si `param` es un código postal (solo dígitos) o una ciudad
+        if param.isdigit():
+            # URL para obtener lat y lon usando código postal
+            geocode_url = f"http://api.openweathermap.org/geo/1.0/zip?zip={param},es&appid={open_weather_token}"
+        else:
+            # URL para obtener lat y lon usando nombre de ciudad
+            geocode_url = f"http://api.openweathermap.org/geo/1.0/direct?q={param},es&limit=1&appid={open_weather_token}"
+
+        # Realizar la solicitud para obtener las coordenadas
+        geocode_res = requests.get(geocode_url)
+        geocode_res.raise_for_status()
+        geocode_data = geocode_res.json()
+
+        # Procesar los datos de coordenadas
+        if param.isdigit():
+            lat = geocode_data['lat']
+            lon = geocode_data['lon']
+        elif geocode_data:
+            lat = geocode_data[0]['lat']
+            lon = geocode_data[0]['lon']
+        else:
+            bot.send_message(mensaje.chat.id, "No se pudo encontrar la ubicación especificada.")
+            return
+
+        # Obtener el pronóstico de temperatura para los próximos 5 días
+        forecast_url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&units=metric&appid={open_weather_token}"
+        forecast_res = requests.get(forecast_url)
+        forecast_res.raise_for_status()
+        forecast_data = forecast_res.json()
+
+        # Calcular el promedio de temperatura
+        temperaturas = [entry['main']['temp'] for entry in forecast_data['list']]
+        promedio_temp = sum(temperaturas) / len(temperaturas)
+
+        # Obtener la hora actual en España
+        current_time_in_spain = datetime.now(spain_timezone)
+
+        # Formatear el mensaje de respuesta
+        mensaje_respuesta = textwrap.dedent(f"""
+            📅 Fecha: {current_time_in_spain.strftime("%d/%m/%Y")}
+            🕒 Hora: {current_time_in_spain.strftime("%H:%M:%S")}
+            
+            🌍 Lugar: {param.capitalize()}
+            🌡️ Temperatura Promedio Próximos 5 Días: {promedio_temp:.2f} °C
+        """)
+
+        bot.reply_to(mensaje, mensaje_respuesta.strip())
+    except requests.exceptions.HTTPError as http_err:
+        bot.reply_to(mensaje, "No se pudo obtener el promedio de la temperatura. Verifica el código postal o el nombre del lugar.")
+        print(f"HTTP error: {http_err}")
+    except Exception as err:
+        bot.reply_to(mensaje, "Ocurrió un error al obtener el promedio de la temperatura.")
+        print(f"Other error: {err}")
+
+
+
+# Función para enviar los datos de pronóstico a Gemini y obtener la predicción
+def obtener_prediccion_gemini(forecast_res):
+    # Convertir los datos JSON en una cadena de texto
+    forecast_data = json.dumps(forecast_res)
+
+    # Crear el prompt para la predicción
+    prompt = (
+            "A continuación, tienes un conjunto de datos meteorológicos en formato JSON. "
+            "Por favor, realiza una predicción general del tiempo basado en estos datos para los próximos días.\n\n"
+            "Datos meteorológicos JSON:\n" + forecast_data +"Envia la respuesta en formato MARKDOWNV2."
+    )
+
+    # Llamar a la API de Gemini para obtener la respuesta
+    try:
+        response = model.generate_content(prompt)
+        # Obtener el texto generado
+        prediccion = response._result.candidates[0].content.parts[0].text
+        return prediccion
+    except Exception as e:
+        print(f"Error al generar predicción con Gemini: {e}")
+        return "Ocurrió un error al intentar realizar la predicción del tiempo."
+
+
+
+
+# Comando para manejar /prediccion_general
+@bot.message_handler(commands=['prediccion_general'])
+def handle_prediccion_general(mensaje):
+    args = mensaje.text.split(maxsplit=1)  # Divide el comando y el argumento
+    if len(args) < 2:
+        # Si no hay suficientes argumentos, establece el estado y pide más información
+        bot.send_message(mensaje.chat.id,
+                         "Por favor, proporciona un código postal o un nombre de lugar para la predicción del tiempo.")
+        user_state[mensaje.chat.id] = "esperando_prediccion_general"
+    else:
+        # Si hay suficientes argumentos, procesamos la predicción directamente
+        param = args[1]
+        obtener_prediccion_general(mensaje, param)
+
+
+# Manejador para el siguiente input del usuario si falta el parámetro
+@bot.message_handler(func=lambda mensaje: user_state.get(mensaje.chat.id) == "esperando_prediccion_general")
+def obtener_segundo_argumento_prediccion_general(mensaje):
+    param = mensaje.text  # Captura el segundo argumento como ubicación
+    user_state[mensaje.chat.id] = None  # Limpiar el estado del usuario después de recibir la entrada
+    obtener_prediccion_general(mensaje, param)
+
+# Función para obtener predicción de tiempo de una ubicación
+def obtener_prediccion_general(mensaje, param):
+    try:
+        # Determina si `param` es un código postal (solo dígitos) o una ciudad
+        if param.isdigit():
+            # URL para obtener lat y lon usando código postal
+            geocode_url = f"http://api.openweathermap.org/geo/1.0/zip?zip={param},es&appid={open_weather_token}"
+        else:
+            # URL para obtener lat y lon usando nombre de ciudad
+            geocode_url = f"http://api.openweathermap.org/geo/1.0/direct?q={param},es&limit=1&appid={open_weather_token}"
+
+        # Realizar la solicitud para obtener las coordenadas
+        geocode_res = requests.get(geocode_url)
+        geocode_res.raise_for_status()
+        geocode_data = geocode_res.json()
+
+        # Procesar los datos de coordenadas
+        if param.isdigit():
+            lat = geocode_data['lat']
+            lon = geocode_data['lon']
+        elif geocode_data:
+            lat = geocode_data[0]['lat']
+            lon = geocode_data[0]['lon']
+        else:
+            bot.send_message(mensaje.chat.id, "No se pudo encontrar la ubicación especificada.")
+            return
+
+        # Obtener el pronóstico de temperatura para los próximos 5 días
+        forecast_url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&units=metric&appid={open_weather_token}"
+        forecast_res = requests.get(forecast_url)
+        forecast_res.raise_for_status()
+        forecast_data = forecast_res.json()
+
+        # Enviar los datos a Gemini para obtener la predicción
+        prediccion = obtener_prediccion_gemini(forecast_data)
+
+        # Obtener la hora actual en España
+        current_time_in_spain = datetime.now(spain_timezone)
+
+        # Formatear el mensaje de respuesta
+        mensaje_respuesta = textwrap.dedent(f"""📅 Fecha: {current_time_in_spain.strftime("%d/%m/%Y")}
+🕒 Hora: {current_time_in_spain.strftime("%H:%M:%S")}
+
+🌍 Lugar: {param.capitalize()}
+🔮 Predicción General del Tiempo: 
+
+{prediccion}
+        """)
+
+        bot.reply_to(mensaje, mensaje_respuesta.strip())
+    except requests.exceptions.HTTPError as http_err:
+        bot.reply_to(mensaje,
+                     "No se pudo obtener los datos de pronóstico. Verifica el código postal o el nombre del lugar.")
+        print(f"HTTP error: {http_err}")
+    except Exception as err:
+        bot.reply_to(mensaje, "Ocurrió un error al obtener la predicción general del tiempo.", parse_mode='MarkdownV2')
+        print(f"Other error: {err}")
+
+
 @bot.message_handler(content_types=['text'])
 def respuesta_por_defecto(mensaje):
     prompt = (
@@ -230,7 +418,6 @@ def respuesta_por_defecto(mensaje):
     response = model.generate_content(prompt)
     generated_text = response._result.candidates[0].content.parts[0].text
     bot.reply_to(mensaje, generated_text)
-
 
 # Start polling
 bot.infinity_polling()
