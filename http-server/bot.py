@@ -1,11 +1,38 @@
-import telebot
+from telebot.types import ReplyKeyboardMarkup
 from database import save_user, get_user_id, delete_user
 import os
+import bot_instance
 
-# Load the bot token from the environment
-TELEGRAM_BOT_TOKEN = ""
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+# Cargar el bot del bot_instance
+bot = bot_instance.bot
 
+
+@bot.message_handler(commands=["start"])
+def start(message):
+    welcome_text = (
+        "¡Bienvenido al Bot de SMS a Telegram!\n\n"
+        "Este bot permite que cualquier persona pueda enviarte un mensaje "
+        "a través de un SMS y que llegue directamente a tu Telegram, siempre que "
+        "estés registrado.\n\n"
+        "**¿Cómo funciona?**\n"
+        "1. Cualquiera puede enviar un SMS al número específico del servicio con el "
+        "formato:\n\n"
+        "   `[nombre_de_usuario] [mensaje]`\n\n"
+        "2. El bot buscará el `nombre_de_usuario` en su lista de usuarios registrados.\n"
+        "3. Si encuentra una coincidencia, enviará el mensaje a ese usuario en Telegram.\n\n"
+        "Este sistema te permite recibir mensajes SMS de una manera más cómoda en Telegram.\n\n"
+        "**Comandos Disponibles:**\n"
+        "/start - Muestra este mensaje de bienvenida y explica el funcionamiento\n"
+        "/register - Registra tu cuenta para poder recibir mensajes\n"
+        "/deregister - Elimina tu cuenta de los usuarios registrados\n"
+    )
+
+    # Crear el menú de teclado
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.row("/start", "/register", "/deregister")
+
+    # Enviar el mensaje de bienvenida junto con el teclado
+    bot.send_message(message.chat.id, welcome_text, reply_markup=keyboard, parse_mode="Markdown")
 # Handle /register command
 @bot.message_handler(commands=["register"])
 def register(message):

@@ -1,16 +1,17 @@
 from bottle import Bottle, request, response
 import requests
 from database import get_user_id  # Import the helper function
-import os
+import os, dotenv
 
 # Initialize the Bottle application
 app = Bottle()
-
+# Load environment variables
+dotenv.load_dotenv()
 # Set your Telegram bot token as an environment variable
-TELEGRAM_BOT_TOKEN = ""
+TELEGRAM_SMS_BOT_TOKEN = os.getenv("TELEGRAM_SMS_BOT_TOKEN")
 
 # Define the base URL of the Telegram API
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_SMS_BOT_TOKEN}"
 
 # Route to send a message to a Telegram user using GET method
 @app.route('/send_message', method='GET')
@@ -38,6 +39,7 @@ def send_message():
             "chat_id": user_id,
             "text": message_text
         }
+        print(params)
 
         # Send the request to the Telegram API
         res = requests.get(url, params=params)

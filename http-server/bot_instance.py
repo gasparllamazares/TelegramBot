@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Load the Telegram Bot Token from environment variables
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_SMS_BOT_TOKEN")
 
 # Initialize the bot instance
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
