@@ -1,5 +1,13 @@
 version: '3.8'
 
+networks:
+  sms_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+
 services:
   telegram_bot:
     build:
@@ -9,11 +17,11 @@ services:
       - OPEN_WEATHER_TOKEN=${OPEN_WEATHER_TOKEN}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - GOOGLE_API_TOKEN=${GOOGLE_API_TOKEN}
-      - MQTT_CLIENT_CERT=/app/certs/client.crt  # Internal path where certs are now located
+      - MQTT_CLIENT_CERT=/app/certs/client.crt
       - MQTT_CLIENT_KEY=/app/certs/client.key
       - MQTT_CA_CERT=/app/certs/ca.crt
     volumes:
-      - ./telegram-bot/certs:/app/certs  # Mount certs folder into the container
+      - ./telegram-bot/certs:/app/certs
     restart: unless-stopped
 
   telegram_sms_bot:
@@ -24,6 +32,10 @@ services:
       - TELEGRAM_SMS_BOT_TOKEN=${TELEGRAM_SMS_BOT_TOKEN}
     ports:
       - "5500:5500"
+    networks:
+      sms_network:
+        ipv4_address: 172.30.0.20  # Fixed IP for smsbox
+
     restart: unless-stopped
 
   kannel:
@@ -33,9 +45,8 @@ services:
     entrypoint:
       - /usr/sbin/bearerbox
       - /etc/kannel/kannel.conf
-    ports:
-      - "13000:13000"
-      - "13001:13001"
+    networks:
+      - sms_network
     restart: unless-stopped
 
   smsbox:
@@ -45,8 +56,9 @@ services:
     entrypoint:
       - /usr/sbin/smsbox
       - /etc/kannel/kannel.conf
-    links:
-      - kannel:kannel-bearerbox
+    networks:
+      sms_network:
+        ipv4_address: 172.30.0.10  # Fixed IP for smsbox
     ports:
       - "13013:13013"
     restart: unless-stopped
