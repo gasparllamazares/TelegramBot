@@ -3,7 +3,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y kannel=1.4.5-12
 
 
-COPY ../kannel.conf /etc/kannel/kannel.conf
+COPY kannel.conf /etc/kannel/kannel.conf
 RUN mkdir -p /usr/local/sbin
 RUN ln /usr/sbin/smsbox /usr/local/sbin/smsbox
 RUN ln /usr/sbin/bearerbox /usr/local/sbin/bearerbox
