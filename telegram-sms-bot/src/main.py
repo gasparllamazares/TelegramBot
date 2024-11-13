@@ -18,8 +18,8 @@ TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_SMS_BOT_TOKEN}"
 def send_message():
     try:
         # Get username and message from query parameters
-        username = request.args.get('username')
-        message_text = request.args.get('message_text')
+        username = request.query.get('username')
+        message_text = request.query.get('message_text')
 
         if not username or not message_text:
             response.status = 400
