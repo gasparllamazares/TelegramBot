@@ -1,6 +1,5 @@
 from telebot.types import ReplyKeyboardMarkup
 from database import save_user, get_user_id, delete_user
-import os
 import bot_instance
 
 # Cargar el bot del bot_instance

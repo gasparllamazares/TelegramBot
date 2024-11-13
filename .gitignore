@@ -1,4 +1,4 @@
 .venv
 .idea
 .env
-certs
+telegram-bot/certs

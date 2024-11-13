@@ -9,11 +9,44 @@ services:
       - OPEN_WEATHER_TOKEN=${OPEN_WEATHER_TOKEN}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - GOOGLE_API_TOKEN=${GOOGLE_API_TOKEN}
-      - MQTT_CLIENT_CERT=/certs/client.crt  # Internal container path
-      - MQTT_CLIENT_KEY=/certs/client.key
-      - MQTT_CA_CERT=/certs/ca.crt
+      - MQTT_CLIENT_CERT=/app/certs/client.crt  # Internal path where certs are now located
+      - MQTT_CLIENT_KEY=/app/certs/client.key
+      - MQTT_CA_CERT=/app/certs/ca.crt
     volumes:
-      - ${MQTT_CLIENT_CERT}:/certs/client.crt
-      - ${MQTT_CLIENT_KEY}:/certs/client.key
-      - ${MQTT_CA_CERT}:/certs/ca.crt
+      - ./telegram-bot/certs:/app/certs  # Mount certs folder into the container
+    restart: unless-stopped
+
+  telegram_sms_bot:
+    build:
+      context: ./telegram-sms-bot
+    container_name: telegram-sms-bot
+    environment:
+      - TELEGRAM_SMS_BOT_TOKEN=${TELEGRAM_SMS_BOT_TOKEN}
+    ports:
+      - "5500:5500"
+    restart: unless-stopped
+
+  kannel:
+    build:
+      context: ./kannel-docker
+    container_name: kannel-bearerbox
+    entrypoint:
+      - /usr/sbin/bearerbox
+      - /etc/kannel/kannel.conf
+    ports:
+      - "13000:13000"
+      - "13001:13001"
+    restart: unless-stopped
+
+  smsbox:
+    build:
+      context: ./kannel-docker
+    container_name: kannel-smsbox
+    entrypoint:
+      - /usr/sbin/smsbox
+      - /etc/kannel/kannel.conf
+    links:
+      - kannel:kannel-bearerbox
+    ports:
+      - "13013:13013"
     restart: unless-stopped
