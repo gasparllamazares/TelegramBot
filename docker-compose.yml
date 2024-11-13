@@ -41,7 +41,7 @@ services:
 
   kannel:
     build:
-      context: ./kannel-docker
+      context: kannel
     container_name: kannel-bearerbox
     entrypoint:
       - /usr/sbin/bearerbox
@@ -56,7 +56,7 @@ services:
 
   smsbox:
     build:
-      context: ./kannel-docker
+      context: kannel
     container_name: kannel-smsbox
     entrypoint:
       - /usr/sbin/smsbox
