@@ -2,6 +2,7 @@ version: '3.8'
 
 networks:
   sms_network:
+    name: sms_network
     driver: bridge
     ipam:
       config:
