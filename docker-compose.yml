@@ -66,6 +66,4 @@ services:
         ipv4_address: 172.30.0.10  # Fixed IP for smsbox
     ports:
       - "13013:13013"
-    volumes:
-      - ./kannel.conf:/etc/kannel/kannel.conf  # Mount local kannel.conf
     restart: unless-stopped
