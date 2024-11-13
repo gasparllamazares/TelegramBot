@@ -45,8 +45,12 @@ services:
     entrypoint:
       - /usr/sbin/bearerbox
       - /etc/kannel/kannel.conf
+
     networks:
-      - sms_network
+      sms_network:
+        ipv4_address: 172.30.0.11  # Fixed IP for bearerbox
+    volumes:
+      - ./kannel.conf:/etc/kannel/kannel.conf  # Mount local kannel.conf
     restart: unless-stopped
 
   smsbox:
@@ -61,4 +65,6 @@ services:
         ipv4_address: 172.30.0.10  # Fixed IP for smsbox
     ports:
       - "13013:13013"
+    volumes:
+      - ./kannel.conf:/etc/kannel/kannel.conf  # Mount local kannel.conf
     restart: unless-stopped
